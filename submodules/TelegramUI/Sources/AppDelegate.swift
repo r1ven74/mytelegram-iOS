@@ -213,6 +213,32 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
     )
 }
 
+private let diagLogTag = 987654
+
+private func diagLogPath() -> String {
+    let docs = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true).first ?? NSTemporaryDirectory()
+    return docs + "/launch-diag.log"
+}
+
+private func diagLog(_ message: String) {
+    NSLog("[DIAG] \(message)")
+    let stamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+    let line = "[\(stamp)] \(message)\n"
+    guard let data = line.data(using: .utf8) else { return }
+    let path = diagLogPath()
+    if FileManager.default.fileExists(atPath: path), let handle = FileHandle(forWritingAtPath: path) {
+        handle.seekToEndOfFile()
+        handle.write(data)
+        handle.closeFile()
+    } else {
+        FileManager.default.createFile(atPath: path, contents: data, attributes: nil)
+    }
+}
+
+private func diagUncaughtHandler(_ exception: NSException) {
+    diagLog("UNCAUGHT \(exception.name.rawValue): \(exception.reason ?? "") | \(exception.callStackSymbols.prefix(25).joined(separator: " > "))")
+}
+
 @objc(AppDelegate) class AppDelegate: UIResponder, UIApplicationDelegate, PKPushRegistryDelegate, UNUserNotificationCenterDelegate, URLSessionDelegate, URLSessionTaskDelegate {
     @objc var window: UIWindow?
     var nativeWindow: (UIWindow & WindowHost)?
@@ -222,7 +248,16 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
     
     private var buildConfig: BuildConfig?
     let episodeId = arc4random()
-    
+
+    private func diagStep(_ text: String) {
+        diagLog(text)
+        DispatchQueue.main.async { [weak self] in
+            if let label = self?.window?.rootViewController?.view.viewWithTag(diagLogTag) as? UILabel {
+                label.text = "DIAG: \(text)"
+            }
+        }
+    }
+
     private let isInForegroundPromise = ValuePromise<Bool>(false, ignoreRepeated: true)
     private var isInForegroundValue = false
     private let isActivePromise = ValuePromise<Bool>(false, ignoreRepeated: true)
@@ -324,6 +359,9 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         precondition(!testIsLaunched)
         testIsLaunched = true
         
+        NSSetUncaughtExceptionHandler(diagUncaughtHandler)
+        diagLog("didFinishLaunching begin bundle=\(Bundle.main.bundleIdentifier ?? "nil") version=\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?") build=\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?")")
+        
         let _ = voipTokenPromise.get().start(next: { token in
             self.voipDeviceToken.set(.single(token))
         })
@@ -412,6 +450,18 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         }
         self.window = window
         self.nativeWindow = window
+        
+        hostView.containerView.backgroundColor = UIColor(red: 1.0, green: 0.0, blue: 0.55, alpha: 1.0)
+        let diagLabel = UILabel(frame: CGRect(x: 16.0, y: 64.0, width: UIScreen.main.bounds.width - 32.0, height: 160.0))
+        diagLabel.autoresizingMask = [.flexibleWidth]
+        diagLabel.tag = diagLogTag
+        diagLabel.textColor = .white
+        diagLabel.font = UIFont.monospacedSystemFont(ofSize: 18.0, weight: .bold)
+        diagLabel.numberOfLines = 0
+        diagLabel.text = "DIAG: window created"
+        hostView.containerView.addSubview(diagLabel)
+        diagLog("window created, frame=\(window.frame)")
+        window.makeKeyAndVisible()
         
         hostView.containerView.layer.addSublayer(MetalEngine.shared.rootLayer)
         
@@ -640,9 +690,17 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
             isICloudEnabled: buildConfig.isICloudEnabled
         )
         
-        guard let appGroupUrl = maybeAppGroupUrl else {
-            self.mainWindow?.presentNative(UIAlertController(title: nil, message: "Error 2", preferredStyle: .alert))
-            return true
+        let appGroupUrl: URL
+        if let url = maybeAppGroupUrl {
+            appGroupUrl = url
+            diagStep("appGroup ok: \(appGroupName)")
+        } else {
+            diagLog("WARN: appGroupUrl is nil for \(appGroupName), using fallback container")
+            let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSTemporaryDirectory())
+            let fallbackUrl = supportDir.appendingPathComponent("diag-fallback-group", isDirectory: true)
+            try? FileManager.default.createDirectory(at: fallbackUrl, withIntermediateDirectories: true)
+            appGroupUrl = fallbackUrl
+            diagStep("WARN appGroup nil, fallback: \(fallbackUrl.path)")
         }
         
         var isDebugConfiguration = false
@@ -676,8 +734,10 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         
         let deviceSpecificEncryptionParameters = BuildConfig.deviceSpecificEncryptionParameters(rootPath, baseAppBundleId: baseAppBundleId)
         let encryptionParameters = ValueBoxEncryptionParameters(forceEncryptionIfNoSet: false, key: ValueBoxEncryptionParameters.Key(data: deviceSpecificEncryptionParameters.key)!, salt: ValueBoxEncryptionParameters.Salt(data: deviceSpecificEncryptionParameters.salt)!)
+        diagStep("encryption params ok")
         
         TempBox.initializeShared(basePath: rootPath, processType: "app", launchSpecificId: Int64.random(in: Int64.min ... Int64.max))
+        diagStep("tempbox initialized")
         
         let writeAbilityTestFile = TempBox.shared.tempFile(fileName: "test.bin")
         var writeAbilityTestSuccess = true
@@ -704,6 +764,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         }
         
         if !writeAbilityTestSuccess {
+            diagLog("FAIL: tempbox write test failed (disk space?)")
             let alertController = UIAlertController(title: nil, message: "The device does not have sufficient free space.", preferredStyle: .alert)
             alertController.addAction(UIAlertAction(title: "OK", style: .default, handler: { _ in
                 preconditionFailure()
@@ -712,6 +773,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
             
             return true
         }
+        diagStep("tempbox write test ok")
         
         let legacyLogs: [String] = [
             "broadcast-logs",
@@ -727,6 +789,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         let logsPath = rootPath + "/logs/app-logs"
         let _ = try? FileManager.default.createDirectory(atPath: logsPath, withIntermediateDirectories: true, attributes: nil)
         Logger.setSharedLogger(Logger(rootPath: rootPath, basePath: logsPath))
+        diagStep("logger set")
 
         setManagedAudioSessionLogger({ s in
             Logger.shared.log("ManagedAudioSession", s)
@@ -776,6 +839,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         GlobalExperimentalSettings.isAppStoreBuild = buildConfig.isAppStoreBuild
         GlobalExperimentalSettings.enableFeed = false
         
+        diagStep("pre-launch checks done, showing window")
         self.window?.makeKeyAndVisible()
         
         var hasActiveCalls: Signal<Bool, NoError> = .single(false)
@@ -1077,6 +1141,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
         |> deliverOnMainQueue
         |> mapToSignal { accountManager, initialPresentationDataAndSettings -> Signal<(SharedApplicationContext, LoggingSettings), NoError> in
             self.mainWindow?.hostView.containerView.backgroundColor =  initialPresentationDataAndSettings.presentationData.theme.chatList.backgroundColor
+            self.diagStep("presentation data loaded")
             
             let legacyBasePath = appGroupUrl.path
             
@@ -1200,6 +1265,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
             Logger.shared.logToFile = loggingSettings.logToFile
             Logger.shared.logToConsole = loggingSettings.logToConsole
             Logger.shared.redactSensitiveData = loggingSettings.redactSensitiveData
+            self.diagStep("sharedContext ready")
             
             return .single(sharedApplicationContext)
         })
@@ -1321,6 +1387,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
             }
             
             Logger.shared.log("App \(self.episodeId)", "received context \(String(describing: context)) account \(String(describing: context?.context.account.id)) network \(String(describing: network))")
+            self.diagStep("context delivered: \(context != nil)")
             
             let firstTime = self.contextValue == nil
             if let contextValue = self.contextValue {
@@ -1343,6 +1410,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
                     print("Launch to ready took \((CFAbsoluteTimeGetCurrent() - launchStartTime) * 1000.0) ms")
 
                     self.mainWindow.debugAction = nil
+                    self.diagStep("authorized UI shown")
                     self.mainWindow.viewController = context.rootController
                     
                     if firstTime {
@@ -1381,6 +1449,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
             }
             
             Logger.shared.log("App \(self.episodeId)", "received auth context \(String(describing: context)) account \(String(describing: context?.account.id)) network \(String(describing: network))")
+            self.diagStep("auth context delivered: \(context != nil)")
             
             if let authContextValue = self.authContextValue {
                 authContextValue.account.shouldBeServiceTaskMaster.set(.single(.never))
@@ -1426,6 +1495,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
                 |> take(1)
                 |> deliverOnMainQueue).start(next: { _ in
                     progressDisposable.dispose()
+                    self.diagStep("auth UI shown")
                     self.mainWindow.present(context.rootController, on: .root)
                 }))
             } else {
@@ -1688,6 +1758,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
             }
         })
         
+        diagStep("didFinishLaunching finished")
         return true
     }
     
