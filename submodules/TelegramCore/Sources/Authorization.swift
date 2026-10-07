@@ -1041,9 +1041,11 @@ public func authorizeWithCode(accountManager: AccountManager<TelegramAccountMana
                  
                     return account.network.request(Api.functions.auth.signIn(flags: flags, phoneNumber: number, phoneCodeHash: hash, phoneCode: phoneCode, emailVerification: emailVerification), automaticFloodWait: false)
                     |> map { authorization in
+                        daygramDiagLog("signIn response received")
                         return .authorization(authorization)
                     }
                     |> `catch` { error -> Signal<AuthorizationCodeResult, AuthorizationCodeVerificationError> in
+                        daygramDiagLog("signIn error \(error.errorCode) \(error.errorDescription ?? "?")")
                         switch (error.errorCode, error.errorDescription ?? "") {
                             case (401, "SESSION_PASSWORD_NEEDED"):
                                 return account.network.request(Api.functions.account.getPassword(), automaticFloodWait: false)
@@ -1096,6 +1098,7 @@ public func authorizeWithCode(accountManager: AccountManager<TelegramAccountMana
                                         }
 
                                         let user = TelegramUser(user: apiUser)
+                                        daygramDiagLog("signIn authorization decoded user=\(user.id)")
                                         var isSupportUser = false
                                         if let phone = user.phone, phone.hasPrefix("42") {
                                             isSupportUser = true
@@ -1108,9 +1111,11 @@ public func authorizeWithCode(accountManager: AccountManager<TelegramAccountMana
                                         }
                                         return accountManager.transaction { transaction -> AuthorizeWithCodeResult in
                                             switchToAuthorizedAccount(transaction: transaction, account: account, isSupportUser: isSupportUser)
+                                            daygramDiagLog("switchToAuthorizedAccount done")
                                             return .loggedIn
                                         }
                                     case let .authorizationSignUpRequired(authorizationSignUpRequiredData):
+                                        daygramDiagLog("signIn => signUpRequired")
                                         let termsOfService = authorizationSignUpRequiredData.termsOfService
                                         return .single(.signUp(AuthorizationSignUpData(number: number, codeHash: hash, code: code, termsOfService: termsOfService.flatMap(UnauthorizedAccountTermsOfService.init(apiTermsOfService:)), syncContacts: syncContacts)))
                                     }

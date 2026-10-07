@@ -272,8 +272,10 @@ public func accountWithId(accountManager: AccountManager<TelegramAccountManagerT
     |> mapToSignal { result -> Signal<AccountResult, NoError> in
         switch result {
             case let .upgrading(progress):
+                daygramDiagLog("account \(id): postbox upgrading \(progress)")
                 return .single(.upgrading(progress))
             case .error:
+                daygramDiagLog("account \(id): postbox OPEN ERROR")
                 return .single(.upgrading(0.0))
             case let .postbox(postbox):
                 return accountManager.transaction { transaction -> (LocalizationSettings?, ProxySettings?) in
@@ -330,16 +332,19 @@ public func accountWithId(accountManager: AccountManager<TelegramAccountManagerT
                                             return .unauthorized(UnauthorizedAccount(accountManager: accountManager, networkArguments: networkArguments, id: id, rootPath: rootPath, basePath: path, testingEnvironment: unauthorizedState.isTestingEnvironment, postbox: postbox, network: network, shouldKeepAutoConnection: shouldKeepAutoConnection))
                                         }
                                 case let authorizedState as AuthorizedAccountState:
+                                    daygramDiagLog("account \(id): authorized state, initializing network")
                                     return postbox.transaction { transaction -> String? in
                                         return (transaction.getPeer(authorizedState.peerId) as? TelegramUser)?.phone
                                     }
                                     |> mapToSignal { phoneNumber in
                                         return initializedNetwork(accountId: id, arguments: networkArguments, supplementary: supplementary, datacenterId: Int(authorizedState.masterDatacenterId), keychain: keychain, basePath: path, testingEnvironment: authorizedState.isTestingEnvironment, languageCode: localizationSettings?.primaryComponent.languageCode, proxySettings: proxySettings, networkSettings: networkSettings, phoneNumber: phoneNumber, useRequestTimeoutTimers: useRequestTimeoutTimers, appConfiguration: appConfig)
                                         |> map { network -> AccountResult in
+                                            daygramDiagLog("account \(id): network ready, creating Account peer=\(authorizedState.peerId)")
                                             return .authorized(Account(accountManager: accountManager, id: id, basePath: path, testingEnvironment: authorizedState.isTestingEnvironment, postbox: postbox, network: network, networkArguments: networkArguments, peerId: authorizedState.peerId, auxiliaryMethods: auxiliaryMethods, supplementary: supplementary, isSupportUser: isSupportUser))
                                         }
                                     }
                                 case _:
+                                    daygramDiagLog("account \(id): unexpected state \(accountState)")
                                     assertionFailure("Unexpected accountState \(accountState)")
                             }
                         }

@@ -625,14 +625,17 @@ public final class SharedAccountContextImpl: SharedAccountContext {
             return true
         })
         |> deliverOnMainQueue).start(next: { primaryId, records, authRecord in
+            daygramDiagLog("account records appeared primary=\(primaryId.map { "\($0)" } ?? "nil") auth=\(authRecord.map { "\($0.0)" } ?? "nil") existing=\(self.activeAccountsValue?.accounts.count ?? -1)")
             var addedSignals: [Signal<AddedAccountResult, NoError>] = []
             var addedAuthSignal: Signal<UnauthorizedAccount?, NoError> = .single(nil)
             for (id, attributes) in records {
                 if self.activeAccountsValue?.accounts.firstIndex(where: { $0.0 == id}) == nil {
+                    daygramDiagLog("loading account id=\(id)")
                     addedSignals.append(accountWithId(accountManager: accountManager, networkArguments: networkArguments, id: id, encryptionParameters: encryptionParameters, supplementary: !applicationBindings.isMainApp, isSupportUser: attributes.isSupportUser, rootPath: rootPath, beginWithTestingEnvironment: attributes.isTestingEnvironment, backupData: attributes.backupData, auxiliaryMethods: makeTelegramAccountAuxiliaryMethods(uploadInBackground: appDelegate?.uploadInBackround))
                     |> mapToSignal { result -> Signal<AddedAccountResult, NoError> in
                         switch result {
                             case let .authorized(account):
+                                daygramDiagLog("account \(id): authorized loaded")
                                 setupAccount(account, fetchCachedResourceRepresentation: fetchCachedResourceRepresentation, transformOutgoingMessageMedia: transformOutgoingMessageMedia)
                                 return TelegramEngine(account: account).data.get(
                                     TelegramEngine.EngineData.Item.Configuration.Limits(),
@@ -645,22 +648,27 @@ public final class SharedAccountContextImpl: SharedAccountContext {
                                     return .ready(id, account, attributes.sortIndex, (limitsConfiguration._asLimits(), contentSettings, appConfiguration, availableReplyColors, availableProfileColors))
                                 }
                             case let .upgrading(progress):
+                                daygramDiagLog("account \(id): upgrading \(progress)")
                                 return .single(.upgrading(progress))
                             default:
+                                daygramDiagLog("account \(id): load returned nil account")
                                 return .single(.ready(id, nil, attributes.sortIndex, (nil, nil, nil, EngineAvailableColorOptions(hash: 0, options: []), EngineAvailableColorOptions(hash: 0, options: []))))
                         }
                     })
                 }
             }
             if let authRecord = authRecord, authRecord.0 != self.activeAccountsValue?.currentAuth?.id {
+                daygramDiagLog("loading auth account id=\(authRecord.0)")
                 addedAuthSignal = accountWithId(accountManager: accountManager, networkArguments: networkArguments, id: authRecord.0, encryptionParameters: encryptionParameters, supplementary: !applicationBindings.isMainApp, isSupportUser: false, rootPath: rootPath, beginWithTestingEnvironment: authRecord.1, backupData: nil, auxiliaryMethods: makeTelegramAccountAuxiliaryMethods(uploadInBackground: appDelegate?.uploadInBackround))
                 |> mapToSignal { result -> Signal<UnauthorizedAccount?, NoError> in
                     switch result {
                         case let .unauthorized(account):
+                            daygramDiagLog("auth account \(authRecord.0): unauthorized loaded")
                             return .single(account)
                         case .upgrading:
                             return .complete()
                         default:
+                            daygramDiagLog("auth account \(authRecord.0): load failed")
                             return .single(nil)
                     }
                 }
@@ -695,6 +703,7 @@ public final class SharedAccountContextImpl: SharedAccountContext {
                 var addedAccounts: [(AccountRecordId, Account?, Int32, AccountInitialData)] = []
                 switch mappedAddedAccounts {
                     case let .upgrading(progress):
+                        daygramDiagLog("accounts still upgrading \(progress)")
                         self.displayUpgradeProgress(progress)
                         return
                     case let .ready(value):
@@ -787,11 +796,13 @@ public final class SharedAccountContextImpl: SharedAccountContext {
                 if hadUpdates {
                     self.activeAccountsValue!.accounts.sort(by: { $0.2 < $1.2 })
                     self.activeAccountsPromise.set(.single(self.activeAccountsValue!))
+                    daygramDiagLog("activeAccounts set primary=\(primaryId.map { "\($0)" } ?? "nil") accounts=\(self.activeAccountsValue!.accounts.count) auth=\(authAccount != nil)")
                     
                     self.performAccountSettingsImportIfNecessary()
                 }
                 
                 if self.activeAccountsValue!.primary == nil && self.activeAccountsValue!.currentAuth == nil {
+                    daygramDiagLog("beginNewAuth: no primary and no auth")
                     self.beginNewAuth(testingEnvironment: self.testingEnvironment)
                 }
             }))

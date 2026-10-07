@@ -215,24 +215,8 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
 
 private let diagLogTag = 987654
 
-private func diagLogPath() -> String {
-    let docs = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true).first ?? NSTemporaryDirectory()
-    return docs + "/launch-diag.log"
-}
-
 private func diagLog(_ message: String) {
-    NSLog("[DIAG] \(message)")
-    let stamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
-    let line = "[\(stamp)] \(message)\n"
-    guard let data = line.data(using: .utf8) else { return }
-    let path = diagLogPath()
-    if FileManager.default.fileExists(atPath: path), let handle = FileHandle(forWritingAtPath: path) {
-        handle.seekToEndOfFile()
-        handle.write(data)
-        handle.closeFile()
-    } else {
-        FileManager.default.createFile(atPath: path, contents: data, attributes: nil)
-    }
+    daygramDiagLog(message)
 }
 
 private func diagUncaughtHandler(_ exception: NSException) {
@@ -360,6 +344,7 @@ private func diagUncaughtHandler(_ exception: NSException) {
         testIsLaunched = true
         
         NSSetUncaughtExceptionHandler(diagUncaughtHandler)
+        daygramDiagInstallSignalHandlers()
         diagLog("didFinishLaunching begin bundle=\(Bundle.main.bundleIdentifier ?? "nil") version=\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?") build=\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?")")
         
         let _ = voipTokenPromise.get().start(next: { token in
@@ -1433,6 +1418,7 @@ private func diagUncaughtHandler(_ exception: NSException) {
                     self.resetIntentsIfNeeded(context: context.context)
                 }))
             } else {
+                self.diagStep("context delivered nil → clearing window")
                 self.mainWindow.viewController = nil
                 self.mainWindow.topLevelOverlayControllers = []
                 contextReadyDisposable.set(nil)
@@ -1455,19 +1441,26 @@ private func diagUncaughtHandler(_ exception: NSException) {
                 authContextValue.account.shouldBeServiceTaskMaster.set(.single(.never))
                 if authContextValue.authorizationCompleted {
                     let accountId = authContextValue.account.id
+                    var contextMatched = false
                     let _ = (self.context.get()
                     |> filter { context in
                         return context?.context.account.id == accountId
                     }
                     |> take(1)
                     |> timeout(4.0, queue: .mainQueue(), alternate: .complete())
-                    |> deliverOnMainQueue).start(completed: {
+                    |> deliverOnMainQueue).start(next: { _ in
+                        contextMatched = true
+                        self.diagStep("auth: authorized context matched \(accountId)")
+                    }, completed: {
+                        self.diagStep("auth: dismiss scheduled matched=\(contextMatched) accountId=\(accountId)")
                         Queue.mainQueue().after(0.75) {
+                            self.diagStep("auth: rootController dismissed")
                             authContextValue.rootController.view.endEditing(true)
                             authContextValue.rootController.dismiss()
                         }
                     })
                 } else {
+                    self.diagStep("auth: instant dismiss (not completed)")
                     authContextValue.rootController.view.endEditing(true)
                     authContextValue.rootController.dismiss()
                 }
