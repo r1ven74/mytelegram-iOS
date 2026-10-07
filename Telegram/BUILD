@@ -1654,7 +1654,7 @@ plist_fragment(
         <integer>2</integer>
     </array>
     <key>UIFileSharingEnabled</key>
-    <false/>
+    <true/>
     <key>UILaunchStoryboardName</key>
     <string>LaunchScreen</string>
     <key>UIRequiresPersistentWiFi</key>
