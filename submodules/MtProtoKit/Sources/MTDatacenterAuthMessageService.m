@@ -15,11 +15,54 @@
 #import <MtProtoKit/MTEncryption.h>
 #import <CommonCrypto/CommonCrypto.h>
 
+#include <stdarg.h>
+
 #import "MTInternalMessageParser.h"
 #import "MTServerDhInnerDataMessage.h"
 #import "MTResPqMessage.h"
 #import "MTServerDhParamsMessage.h"
 #import "MTSetClientDhParamsResponseMessage.h"
+
+static void MTHandshakeDiag(NSString *format, ...) {
+    va_list args;
+    va_start(args, format);
+    NSString *msg = [[NSString alloc] initWithFormat:format arguments:args];
+    va_end(args);
+
+    static NSDateFormatter *dateFormatter = nil;
+    static NSLock *writeLock = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        dateFormatter = [[NSDateFormatter alloc] init];
+        dateFormatter.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
+        dateFormatter.dateFormat = @"yyyy-MM-dd'T'HH:mm:ss.SSS";
+        writeLock = [[NSLock alloc] init];
+    });
+
+    NSString *docs = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+    if (docs.length == 0) {
+        return;
+    }
+    NSString *path = [docs stringByAppendingPathComponent:@"launch-diag.log"];
+    NSString *line = [NSString stringWithFormat:@"[%@] hs %@\n", [dateFormatter stringFromDate:[NSDate date]], msg];
+    NSData *data = [line dataUsingEncoding:NSUTF8StringEncoding];
+
+    [writeLock lock];
+    NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:path];
+    if (handle == nil) {
+        [[NSFileManager defaultManager] createFileAtPath:path contents:nil attributes:nil];
+        handle = [NSFileHandle fileHandleForWritingAtPath:path];
+    }
+    if (handle != nil) {
+        @try {
+            [handle seekToEndOfFile];
+            [handle writeData:data];
+        } @catch (__unused NSException *exception) {
+        }
+        [handle closeFile];
+    }
+    [writeLock unlock];
+}
 
 @interface MTDatacenterAuthPublicKey : NSObject
 
@@ -169,6 +212,7 @@ typedef enum {
 
 - (void)reset:(MTProto *)mtProto
 {
+    MTHandshakeDiag(@"reset from stage=%d keys=%d cdn=%d", (int)_stage, (int)_publicKeys.count, mtProto.cdn ? 1 : 0);
     _currentStageMessageId = 0;
     _currentStageMessageSeqNo = 0;
     _currentStageTransactionId = nil;
@@ -428,6 +472,10 @@ static NSData *encryptRSAModernPadding(id<EncryptionProvider> encryptionProvider
 
 - (void)mtProto:(MTProto *)mtProto receivedMessage:(MTIncomingMessage *)message authInfoSelector:(MTDatacenterAuthInfoSelector)authInfoSelector networkType:(int32_t)networkType
 {
+    if (_stage != MTDatacenterAuthStageDone) {
+        MTHandshakeDiag(@"recv stage=%d body=%@", (int)_stage, NSStringFromClass([message.body class]));
+    }
+
     if (_stage == MTDatacenterAuthStagePQ && [message.body isKindOfClass:[MTResPqMessage class]])
     {
         MTResPqMessage *resPqMessage = message.body;
@@ -435,6 +483,16 @@ static NSData *encryptRSAModernPadding(id<EncryptionProvider> encryptionProvider
         if ([_nonce isEqualToData:resPqMessage.nonce])
         {
             MTDatacenterAuthPublicKey *publicKey = selectPublicKey(_encryptionProvider, resPqMessage.serverPublicKeyFingerprints, _publicKeys);
+
+            NSMutableArray<NSString *> *fpStrings = [[NSMutableArray alloc] init];
+            for (NSNumber *fp in resPqMessage.serverPublicKeyFingerprints) {
+                [fpStrings addObject:[NSString stringWithFormat:@"%llx", [fp longLongValue]]];
+            }
+            NSMutableArray<NSString *> *localFpStrings = [[NSMutableArray alloc] init];
+            for (MTDatacenterAuthPublicKey *key in _publicKeys) {
+                [localFpStrings addObject:[NSString stringWithFormat:@"%llx", [key fingerprintWithEncryptionProvider:_encryptionProvider]]];
+            }
+            MTHandshakeDiag(@"resPq nonceOk=1 serverFps=[%@] localFps=[%@] selected=%d pqLen=%d", [fpStrings componentsJoinedByString:@","], [localFpStrings componentsJoinedByString:@","], publicKey != nil ? 1 : 0, (int)resPqMessage.pq.length);
             
             if (publicKey == nil && mtProto.cdn && resPqMessage.serverPublicKeyFingerprints.count == 1 && _publicKeys.count == 1) {
                 publicKey = _publicKeys[0];
@@ -442,6 +500,7 @@ static NSData *encryptRSAModernPadding(id<EncryptionProvider> encryptionProvider
             
             if (publicKey == nil)
             {
+                MTHandshakeDiag(@"selected key NIL -> reset");
                 if (MTLogEnabled()) {
                     MTLog(@"[MTDatacenterAuthMessageService#%p couldn't find valid server public key]", self);
                 }
@@ -462,10 +521,12 @@ static NSData *encryptRSAModernPadding(id<EncryptionProvider> encryptionProvider
                 uint64_t factQ = 0;
                 if (!MTFactorize(pq, &factP, &factQ))
                 {
+                    MTHandshakeDiag(@"factorize FAIL pq=%llu (0x%llx)", pq, pq);
                     [self reset:mtProto];
                     
                     return;
                 }
+                MTHandshakeDiag(@"factorize ok p=%llu q=%llu", factP, factQ);
                 
                 _serverNonce = resPqMessage.serverNonce;
                 
@@ -539,12 +600,14 @@ static NSData *encryptRSAModernPadding(id<EncryptionProvider> encryptionProvider
                 }
 
                 if (_dhEncryptedData == nil) {
+                    MTHandshakeDiag(@"rsaEncrypt nil -> back to PQ");
                     _stage = MTDatacenterAuthStagePQ;
                     _currentStageMessageId = 0;
                     _currentStageMessageSeqNo = 0;
                     _currentStageTransactionId = nil;
                     [mtProto requestTransportTransaction];
                 } else {
+                    MTHandshakeDiag(@"-> ReqDH fp=%llx encLen=%d temp=%d", (unsigned long long)_dhPublicKeyFingerprint, (int)_dhEncryptedData.length, _tempAuth ? 1 : 0);
                     _stage = MTDatacenterAuthStageReqDH;
                     _currentStageMessageId = 0;
                     _currentStageMessageSeqNo = 0;
@@ -552,6 +615,10 @@ static NSData *encryptRSAModernPadding(id<EncryptionProvider> encryptionProvider
                     [mtProto requestTransportTransaction];
                 }
             }
+        }
+        else
+        {
+            MTHandshakeDiag(@"resPq nonce MISMATCH -> ignored");
         }
     }
     else if (_stage == MTDatacenterAuthStageReqDH && [message.body isKindOfClass:[MTServerDhParamsMessage class]])
@@ -856,8 +923,9 @@ static NSData *encryptRSAModernPadding(id<EncryptionProvider> encryptionProvider
     }
 }
 
-- (void)mtProto:(MTProto *)mtProto protocolErrorReceived:(int32_t)__unused errorCode
+- (void)mtProto:(MTProto *)mtProto protocolErrorReceived:(int32_t)errorCode
 {
+    MTHandshakeDiag(@"protocolError %d -> reset", errorCode);
     [self reset:mtProto];
 }
 
