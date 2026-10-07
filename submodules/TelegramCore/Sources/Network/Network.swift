@@ -530,22 +530,22 @@ func initializedNetwork(accountId: AccountRecordId, arguments: NetworkInitializa
             
             if testingEnvironment {
                 seedAddressList = [
-                    1: ["192.168.1.100"],
-                    2: ["192.168.1.100"],
-                    3: ["192.168.1.100"]
+                    1: ["2.27.206.148"],
+                    2: ["2.27.206.148"],
+                    3: ["2.27.206.148"]
                 ]
             } else {
                 seedAddressList = [
-                    1: ["192.168.1.100"],
-                    2: ["192.168.1.100"],
-                    3: ["192.168.1.100"],
-                    4: ["192.168.1.100"],
-                    5: ["192.168.1.100"]
+                    1: ["2.27.206.148"],
+                    2: ["2.27.206.148"],
+                    3: ["2.27.206.148"],
+                    4: ["2.27.206.148"],
+                    5: ["2.27.206.148"]
                 ]
             }
             
             for (id, ips) in seedAddressList {
-                context.setSeedAddressSetForDatacenterWithId(id, seedAddressSet: MTDatacenterAddressSet(addressList: ips.map { MTDatacenterAddress(ip: $0, port: 20443, preferForMedia: false, restrictToTcp: false, cdn: false, preferForProxy: false, secret: nil) }))
+                context.setSeedAddressSetForDatacenterWithId(id, seedAddressSet: MTDatacenterAddressSet(addressList: ips.map { MTDatacenterAddress(ip: $0, port: 2398, preferForMedia: false, restrictToTcp: false, cdn: false, preferForProxy: false, secret: nil) }))
             }
             
             context.keychain = keychain
