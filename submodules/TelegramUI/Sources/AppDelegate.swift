@@ -346,7 +346,8 @@ private func diagUncaughtHandler(_ exception: NSException) {
         precondition(!testIsLaunched)
         testIsLaunched = true
         
-        diagPreviousUncaughtHandler = NSSetUncaughtExceptionHandler(diagUncaughtHandler)
+        NSSetUncaughtExceptionHandler(diagUncaughtHandler)
+        diagPreviousUncaughtHandler = NSGetUncaughtExceptionHandler()
         daygramDiagInstallSignalHandlers()
         diagLog("didFinishLaunching begin bundle=\(Bundle.main.bundleIdentifier ?? "nil") version=\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?") build=\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?")")
         
