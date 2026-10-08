@@ -341,11 +341,13 @@ public final class SqliteValueBox: ValueBox {
                 
                 if self.isEncrypted(database) {
                     postboxLog("Encryption key is invalid")
+                    postboxLog("removeDatabaseOnError=\(self.removeDatabaseOnError)")
 
                     if isTemporary || isReadOnly || !self.removeDatabaseOnError {
                         return nil
                     }
                     
+                    postboxLog("WIPING database at \(basePath)")
                     for fileName in databaseFileNames {
                         let _ = try? FileManager.default.removeItem(atPath: basePath + "/\(fileName)")
                     }

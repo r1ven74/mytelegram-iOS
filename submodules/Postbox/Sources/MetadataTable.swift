@@ -50,10 +50,14 @@ final class MetadataTable: Table {
             return cachedState
         } else {
             if let value = self.valueBox.get(self.table, key: self.key(.State)) {
+                postboxLog("MetadataTable.state: row exists, length=\(value.length), decoding")
                 if let state = PostboxDecoder(buffer: value).decodeRootObject() {
                     self.cachedState = state
                     return state
                 }
+                postboxLog("MetadataTable.state: decode returned nil")
+            } else {
+                postboxLog("MetadataTable.state: row missing")
             }
             return nil
         }

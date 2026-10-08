@@ -351,6 +351,9 @@ private func diagUncaughtHandler(_ exception: NSException) {
         diagPreviousUncaughtHandler = NSGetUncaughtExceptionHandler()
         daygramDiagInstallSignalHandlers()
         daygramDiagPrepareUdp()
+        setPostboxLogger({ line in
+            daygramDiagLog("postbox: \(line)")
+        }, sync: {})
         if #available(iOS 14.0, *) {
             MXMetricManager.shared.add(self)
         }

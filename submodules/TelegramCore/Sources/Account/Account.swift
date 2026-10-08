@@ -315,6 +315,9 @@ public func accountWithId(accountManager: AccountManager<TelegramAccountManagerT
                         let appConfig = transaction.getPreferencesEntry(key: PreferencesKeys.appConfiguration)?.get(AppConfiguration.self) ?? .defaultValue
                         let stateName = state.map { String(describing: type(of: $0)) } ?? "nil"
                         daygramDiagLog("account \(id): state read \(stateName)")
+                        if state == nil {
+                            daygramDiagLog("account \(id): state nil, backupData=\(backupData != nil)")
+                        }
                         
                         return (state, localizationSettings, proxySettings, transaction.getPreferencesEntry(key: PreferencesKeys.networkSettings)?.get(NetworkSettings.self), appConfig)
                     }
