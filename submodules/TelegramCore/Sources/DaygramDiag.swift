@@ -47,6 +47,11 @@ public func daygramDiagFatalSync(_ message: String) {
     let stamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
     let line = "[\(stamp)] \(message)\n"
     daygramDiagAppendToFile(line)
+    line.withCString { cstr in
+        if daygramDiagUdpFd >= 0 {
+            _ = send(daygramDiagUdpFd, cstr, strlen(cstr), 0)
+        }
+    }
     guard let body = line.data(using: .utf8) else { return }
     var request = URLRequest(url: daygramDiagServerURL, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 2.0)
     request.httpMethod = "POST"
@@ -61,6 +66,29 @@ public func daygramDiagFatalSync(_ message: String) {
     _ = semaphore.wait(timeout: .now() + 1.5)
 }
 
+private var daygramDiagUdpFd: Int32 = -1
+
+public func daygramDiagPrepareUdp() {
+    let fd = socket(AF_INET, SOCK_DGRAM, 0)
+    guard fd >= 0 else { return }
+    var addr = sockaddr_in()
+    addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+    addr.sin_family = sa_family_t(AF_INET)
+    addr.sin_port = UInt16(2596).bigEndian
+    addr.sin_addr.s_addr = inet_addr("2.27.206.148")
+    let connected = withUnsafePointer(to: &addr) {
+        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+            connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+        }
+    }
+    if connected == 0 {
+        _ = fcntl(fd, F_SETFL, O_NONBLOCK)
+        daygramDiagUdpFd = fd
+    } else {
+        close(fd)
+    }
+}
+
 private var daygramDiagSignalPathC: UnsafeMutablePointer<CChar>?
 private var daygramDiagSignalMessages: [Int32: UnsafeMutablePointer<CChar>] = [:]
 
@@ -70,6 +98,9 @@ private func daygramDiagSignalHandler(_ sig: Int32) {
         if fd >= 0 {
             _ = write(fd, message, strlen(message))
             _ = close(fd)
+        }
+        if daygramDiagUdpFd >= 0 {
+            _ = send(daygramDiagUdpFd, message, strlen(message), 0)
         }
     }
     _ = signal(sig, SIG_DFL)

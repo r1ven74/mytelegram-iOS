@@ -1,4 +1,5 @@
 import UIKit
+import MetricKit
 import SwiftSignalKit
 import Display
 import TelegramCore
@@ -349,6 +350,10 @@ private func diagUncaughtHandler(_ exception: NSException) {
         NSSetUncaughtExceptionHandler(diagUncaughtHandler)
         diagPreviousUncaughtHandler = NSGetUncaughtExceptionHandler()
         daygramDiagInstallSignalHandlers()
+        daygramDiagPrepareUdp()
+        if #available(iOS 14.0, *) {
+            MXMetricManager.shared.add(self)
+        }
         diagLog("didFinishLaunching begin bundle=\(Bundle.main.bundleIdentifier ?? "nil") version=\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?") build=\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?")")
         
         let _ = voipTokenPromise.get().start(next: { token in
@@ -3394,5 +3399,38 @@ final class UpdateSettings: Codable, Equatable {
     
     static func ==(lhs: UpdateSettings, rhs: UpdateSettings) -> Bool {
         return lhs.url == rhs.url
+    }
+}
+
+@available(iOS 14.0, *)
+extension AppDelegate: MXMetricManagerSubscriber {
+    func didReceive(_ payloads: [MXMetricPayload]) {
+        for payload in payloads {
+            let data = payload.jsonRepresentation()
+            daygramDiagLog("MXMETRIC bytes=\(data.count)")
+        }
+    }
+
+    func didReceive(_ payloads: [MXDiagnosticPayload]) {
+        for payload in payloads {
+            let data = payload.jsonRepresentation()
+            daygramDiagLog("MXPAYLOAD bytes=\(data.count) crashes=\(payload.crashDiagnostics?.count ?? 0)")
+            if let diagnostics = payload.crashDiagnostics {
+                for diagnostic in diagnostics {
+                    let header = "MXCRASH type=\(diagnostic.exceptionType?.intValue ?? -1) code=\(diagnostic.exceptionCode?.intValue ?? -1) sig=\(diagnostic.signal?.intValue ?? -1) reason=\(diagnostic.terminationReason ?? "nil") asi=\(diagnostic.virtualMemoryRegionInfo ?? "nil")"
+                    daygramDiagLog(header)
+                    let stackData = diagnostic.callStackTree.jsonRepresentation()
+                    let stackText = String(data: stackData, encoding: .utf8) ?? "unparsable"
+                    var index = stackText.startIndex
+                    var chunk = 0
+                    while index < stackText.endIndex {
+                        let end = stackText.index(index, offsetBy: 8000, limitedBy: stackText.endIndex) ?? stackText.endIndex
+                        daygramDiagLog("MXSTACK c\(chunk) \(String(stackText[index..<end]))")
+                        index = end
+                        chunk += 1
+                    }
+                }
+            }
+        }
     }
 }

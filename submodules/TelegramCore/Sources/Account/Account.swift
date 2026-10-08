@@ -278,6 +278,7 @@ public func accountWithId(accountManager: AccountManager<TelegramAccountManagerT
                 daygramDiagLog("account \(id): postbox OPEN ERROR")
                 return .single(.upgrading(0.0))
             case let .postbox(postbox):
+                daygramDiagLog("account \(id): postbox opened")
                 return accountManager.transaction { transaction -> (LocalizationSettings?, ProxySettings?) in
                     var localizationSettings: LocalizationSettings?
                     if !supplementary {
@@ -286,6 +287,7 @@ public func accountWithId(accountManager: AccountManager<TelegramAccountManagerT
                     return (localizationSettings, transaction.getSharedData(SharedDataKeys.proxySettings)?.get(ProxySettings.self))
                 }
                 |> mapToSignal { localizationSettings, proxySettings -> Signal<AccountResult, NoError> in
+                    daygramDiagLog("account \(id): shared settings read")
                     return postbox.transaction { transaction -> (PostboxCoding?, LocalizationSettings?, ProxySettings?, NetworkSettings?, AppConfiguration) in
                         var state = transaction.getState()
                         if state == nil, let backupData = backupData {
@@ -311,11 +313,14 @@ public func accountWithId(accountManager: AccountManager<TelegramAccountManagerT
                         }
                         
                         let appConfig = transaction.getPreferencesEntry(key: PreferencesKeys.appConfiguration)?.get(AppConfiguration.self) ?? .defaultValue
+                        let stateName = state.map { String(describing: type(of: $0)) } ?? "nil"
+                        daygramDiagLog("account \(id): state read \(stateName)")
                         
                         return (state, localizationSettings, proxySettings, transaction.getPreferencesEntry(key: PreferencesKeys.networkSettings)?.get(NetworkSettings.self), appConfig)
                     }
                     |> mapToSignal { (accountState, localizationSettings, proxySettings, networkSettings, appConfig) -> Signal<AccountResult, NoError> in
                         let keychain = makeExclusiveKeychain(id: id, postbox: postbox)
+                        daygramDiagLog("account \(id): keychain ok")
                         
                         var useRequestTimeoutTimers: Bool = true
                         if let data = appConfig.data {
