@@ -219,8 +219,11 @@ private func diagLog(_ message: String) {
     daygramDiagLog(message)
 }
 
+private var diagPreviousUncaughtHandler: (@convention(c) (NSException) -> Void)?
+
 private func diagUncaughtHandler(_ exception: NSException) {
-    diagLog("UNCAUGHT \(exception.name.rawValue): \(exception.reason ?? "") | \(exception.callStackSymbols.prefix(25).joined(separator: " > "))")
+    daygramDiagFatalSync("UNCAUGHT \(exception.name.rawValue): \(exception.reason ?? "") | \(exception.callStackSymbols.prefix(30).joined(separator: " > "))")
+    diagPreviousUncaughtHandler?(exception)
 }
 
 @objc(AppDelegate) class AppDelegate: UIResponder, UIApplicationDelegate, PKPushRegistryDelegate, UNUserNotificationCenterDelegate, URLSessionDelegate, URLSessionTaskDelegate {
@@ -343,7 +346,7 @@ private func diagUncaughtHandler(_ exception: NSException) {
         precondition(!testIsLaunched)
         testIsLaunched = true
         
-        NSSetUncaughtExceptionHandler(diagUncaughtHandler)
+        diagPreviousUncaughtHandler = NSSetUncaughtExceptionHandler(diagUncaughtHandler)
         daygramDiagInstallSignalHandlers()
         diagLog("didFinishLaunching begin bundle=\(Bundle.main.bundleIdentifier ?? "nil") version=\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?") build=\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?")")
         

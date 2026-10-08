@@ -465,8 +465,10 @@ private let cloudDataContext = Atomic<CloudDataContext?>(value: nil)
 
 func initializedNetwork(accountId: AccountRecordId, arguments: NetworkInitializationArguments, supplementary: Bool, datacenterId: Int, keychain: Keychain, basePath: String, testingEnvironment: Bool, languageCode: String?, proxySettings: ProxySettings?, networkSettings: NetworkSettings?, phoneNumber: String?, useRequestTimeoutTimers: Bool, appConfiguration: AppConfiguration) -> Signal<Network, NoError> {
     return Signal { subscriber in
+        daygramDiagLog("net[\(accountId)]: begin dc=\(datacenterId) supp=\(supplementary) phone=\(phoneNumber != nil)")
         let queue = Queue()
         queue.async {
+            daygramDiagLog("net[\(accountId)]: async begin")
             let _ = registeredLoggingFunctions
             
             let serialization = Serialization()
@@ -549,6 +551,7 @@ func initializedNetwork(accountId: AccountRecordId, arguments: NetworkInitializa
             }
             
             context.keychain = keychain
+            daygramDiagLog("net[\(accountId)]: env+seed+keychain ok")
             // var wrappedAdditionalSource: MTSignal?
             #if os(iOS)
             if #available(iOS 10.0, *), !supplementary, arguments.isICloudEnabled {
@@ -605,6 +608,7 @@ func initializedNetwork(accountId: AccountRecordId, arguments: NetworkInitializa
             let mtProto = MTProto(context: context, datacenterId: datacenterId, usageCalculationInfo: usageCalculationInfo(basePath: basePath, category: nil), requiredAuthToken: nil, authTokenMasterDatacenterId: 0)!
             mtProto.useTempAuthKeys = context.useTempAuthKeys
             mtProto.checkForProxyConnectionIssues = true
+            daygramDiagLog("net[\(accountId)]: mtproto ok")
             
             let connectionStatus = Promise<ConnectionStatus>(.waitingForNetwork)
             
@@ -631,6 +635,7 @@ func initializedNetwork(accountId: AccountRecordId, arguments: NetworkInitializa
             }
             mtProto.delegate = connectionStatusDelegate
             mtProto.add(requestService)
+            daygramDiagLog("net[\(accountId)]: services ok")
             
             var useExperimentalFeatures = networkSettings?.useExperimentalDownload ?? true
             if let data = appConfiguration.data, let _ = data["ios_killswitch_disable_downloadv2"] {
@@ -638,6 +643,7 @@ func initializedNetwork(accountId: AccountRecordId, arguments: NetworkInitializa
             }
             
             let network = Network(queue: queue, datacenterId: datacenterId, context: context, mtProto: mtProto, requestService: requestService, connectionStatusDelegate: connectionStatusDelegate, _connectionStatus: connectionStatus, basePath: basePath, appDataDisposable: appDataDisposable, encryptionProvider: arguments.encryptionProvider, useRequestTimeoutTimers: useRequestTimeoutTimers, useBetaFeatures: arguments.useBetaFeatures, useExperimentalFeatures: useExperimentalFeatures)
+            daygramDiagLog("net[\(accountId)]: network object ok")
             
             if let data = appConfiguration.data, let notifyInterval = data["upload_premium_speedup_notify_period"] as? Double {
                 network.updateNetworkSpeedLimitedEventNotifyInterval(value: notifyInterval)
@@ -672,6 +678,7 @@ func initializedNetwork(accountId: AccountRecordId, arguments: NetworkInitializa
                     }
                 }
             }
+            daygramDiagLog("net[\(accountId)]: delivering network")
             subscriber.putNext(network)
             subscriber.putCompletion()
         }

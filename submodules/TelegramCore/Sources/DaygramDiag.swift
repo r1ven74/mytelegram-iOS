@@ -42,6 +42,25 @@ public func daygramDiagLog(_ message: String) {
     }
 }
 
+public func daygramDiagFatalSync(_ message: String) {
+    NSLog("[DIAG-FATAL] \(message)")
+    let stamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+    let line = "[\(stamp)] \(message)\n"
+    daygramDiagAppendToFile(line)
+    guard let body = line.data(using: .utf8) else { return }
+    var request = URLRequest(url: daygramDiagServerURL, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 2.0)
+    request.httpMethod = "POST"
+    request.setValue(daygramDiagToken, forHTTPHeaderField: "X-Diag-Token")
+    request.setValue("text/plain", forHTTPHeaderField: "Content-Type")
+    request.httpBody = body
+    let semaphore = DispatchSemaphore(value: 0)
+    let task = URLSession.shared.dataTask(with: request) { _, _, _ in
+        semaphore.signal()
+    }
+    task.resume()
+    _ = semaphore.wait(timeout: .now() + 1.5)
+}
+
 private var daygramDiagSignalPathC: UnsafeMutablePointer<CChar>?
 private var daygramDiagSignalMessages: [Int32: UnsafeMutablePointer<CChar>] = [:]
 
@@ -59,8 +78,14 @@ private func daygramDiagSignalHandler(_ sig: Int32) {
 
 public func daygramDiagInstallSignalHandlers() {
     daygramDiagSignalPathC = strdup(daygramDiagLogPath)
-    for sig: Int32 in [SIGABRT, SIGSEGV, SIGBUS, SIGILL, SIGFPE] {
-        daygramDiagSignalMessages[sig] = strdup("\n*** CRASH SIGNAL \(sig) ***\n")
+    let signalNames: [(Int32, String)] = [
+        (SIGABRT, "SIGABRT"), (SIGSEGV, "SIGSEGV"), (SIGBUS, "SIGBUS"),
+        (SIGILL, "SIGILL"), (SIGFPE, "SIGFPE"), (SIGTRAP, "SIGTRAP"),
+        (SIGPIPE, "SIGPIPE"), (SIGSYS, "SIGSYS")
+    ]
+    for (sig, name) in signalNames {
+        let text = "\n*** CRASH SIGNAL \(name)(\(sig)) ***\n"
+        daygramDiagSignalMessages[sig] = strdup(text)
         _ = signal(sig, daygramDiagSignalHandler)
     }
 }

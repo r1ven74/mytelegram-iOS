@@ -337,6 +337,7 @@ public func accountWithId(accountManager: AccountManager<TelegramAccountManagerT
                                         return (transaction.getPeer(authorizedState.peerId) as? TelegramUser)?.phone
                                     }
                                     |> mapToSignal { phoneNumber in
+                                        daygramDiagLog("account \(id): phone resolved has=\(phoneNumber != nil)")
                                         return initializedNetwork(accountId: id, arguments: networkArguments, supplementary: supplementary, datacenterId: Int(authorizedState.masterDatacenterId), keychain: keychain, basePath: path, testingEnvironment: authorizedState.isTestingEnvironment, languageCode: localizationSettings?.primaryComponent.languageCode, proxySettings: proxySettings, networkSettings: networkSettings, phoneNumber: phoneNumber, useRequestTimeoutTimers: useRequestTimeoutTimers, appConfiguration: appConfig)
                                         |> map { network -> AccountResult in
                                             daygramDiagLog("account \(id): network ready, creating Account peer=\(authorizedState.peerId)")
