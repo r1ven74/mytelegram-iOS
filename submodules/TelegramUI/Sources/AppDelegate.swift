@@ -1245,7 +1245,7 @@ private func diagUncaughtHandler(_ exception: NSException) {
         |> mapToSignal { sharedApplicationContext -> Signal<AuthorizedApplicationContext?, NoError> in
             return sharedApplicationContext.sharedContext.activeAccountContexts
             |> map { primary, _, _ -> AccountContext? in
-                self.diagStep("ctx: primary emitted id=\(primary?.account.id.rawValue ?? -1)")
+                self.diagStep("ctx: primary emitted id=\(String(describing: primary?.account.id))")
                 return primary
             }
             |> distinctUntilChanged(isEqual: { lhs, rhs in
@@ -1268,7 +1268,7 @@ private func diagUncaughtHandler(_ exception: NSException) {
                     return result
                 }
                 |> map { callListSettings -> (AccountContext, CallListSettings)? in
-                    self.diagStep("ctx: settings tx done account=\(context?.account.id.rawValue ?? -1)")
+                    self.diagStep("ctx: settings tx done account=\(String(describing: context?.account.id))")
                     if let context = context {
                         return (context, callListSettings ?? .defaultSettings)
                     } else {
@@ -1279,7 +1279,7 @@ private func diagUncaughtHandler(_ exception: NSException) {
             |> deliverOnMainQueue
             |> map { accountAndSettings -> AuthorizedApplicationContext? in
                 return accountAndSettings.flatMap { context, callListSettings in
-                    self.diagStep("ctx: init begin account=\(context.account.id.rawValue)")
+                    self.diagStep("ctx: init begin account=\(String(describing: context.account.id))")
                     let result = AuthorizedApplicationContext(sharedApplicationContext: sharedApplicationContext, mainWindow: self.mainWindow, context: context as! AccountContextImpl, accountManager: sharedApplicationContext.sharedContext.accountManager, showCallsTab: callListSettings.showTab, reinitializedNotificationSettings: {
                         let _ = (self.context.get()
                         |> take(1)
@@ -1289,7 +1289,7 @@ private func diagUncaughtHandler(_ exception: NSException) {
                             }
                         })
                     })
-                    self.diagStep("ctx: init done account=\(context.account.id.rawValue)")
+                    self.diagStep("ctx: init done account=\(String(describing: context.account.id))")
                     return result
                 }
             }
