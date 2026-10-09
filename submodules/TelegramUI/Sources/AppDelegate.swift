@@ -347,8 +347,8 @@ private func diagUncaughtHandler(_ exception: NSException) {
         precondition(!testIsLaunched)
         testIsLaunched = true
         
-        NSSetUncaughtExceptionHandler(diagUncaughtHandler)
         diagPreviousUncaughtHandler = NSGetUncaughtExceptionHandler()
+        NSSetUncaughtExceptionHandler(diagUncaughtHandler)
         daygramDiagInstallSignalHandlers()
         daygramDiagPrepareUdp()
         setPostboxLogger({ line in
@@ -970,36 +970,9 @@ private func diagUncaughtHandler(_ exception: NSException) {
                 }
             })
         }, requestSiriAuthorization: { completion in
-            if #available(iOS 10, *) {
-                INPreferences.requestSiriAuthorization { status in
-                    if case .authorized = status {
-                        completion(true)
-                    } else {
-                        completion(false)
-                    }
-                }
-            } else {
-                completion(false)
-            }
+            completion(false)
         }, siriAuthorization: {
-            if buildConfig.isSiriEnabled {
-                if #available(iOS 10, *) {
-                    switch INPreferences.siriAuthorizationStatus() {
-                    case .authorized:
-                        return .allowed
-                    case .denied, .restricted:
-                        return .denied
-                    case .notDetermined:
-                        return .notDetermined
-                    @unknown default:
-                        return .notDetermined
-                    }
-                } else {
-                    return .denied
-                }
-            } else {
-                return .denied
-            }
+            return .denied
         }, getWindowHost: {
             return self.nativeWindow
         }, presentNativeController: { controller in
@@ -1272,6 +1245,7 @@ private func diagUncaughtHandler(_ exception: NSException) {
         |> mapToSignal { sharedApplicationContext -> Signal<AuthorizedApplicationContext?, NoError> in
             return sharedApplicationContext.sharedContext.activeAccountContexts
             |> map { primary, _, _ -> AccountContext? in
+                self.diagStep("ctx: primary emitted id=\(primary?.account.id.rawValue ?? -1)")
                 return primary
             }
             |> distinctUntilChanged(isEqual: { lhs, rhs in
@@ -1294,6 +1268,7 @@ private func diagUncaughtHandler(_ exception: NSException) {
                     return result
                 }
                 |> map { callListSettings -> (AccountContext, CallListSettings)? in
+                    self.diagStep("ctx: settings tx done account=\(context?.account.id.rawValue ?? -1)")
                     if let context = context {
                         return (context, callListSettings ?? .defaultSettings)
                     } else {
@@ -1304,7 +1279,8 @@ private func diagUncaughtHandler(_ exception: NSException) {
             |> deliverOnMainQueue
             |> map { accountAndSettings -> AuthorizedApplicationContext? in
                 return accountAndSettings.flatMap { context, callListSettings in
-                    return AuthorizedApplicationContext(sharedApplicationContext: sharedApplicationContext, mainWindow: self.mainWindow, context: context as! AccountContextImpl, accountManager: sharedApplicationContext.sharedContext.accountManager, showCallsTab: callListSettings.showTab, reinitializedNotificationSettings: {
+                    self.diagStep("ctx: init begin account=\(context.account.id.rawValue)")
+                    let result = AuthorizedApplicationContext(sharedApplicationContext: sharedApplicationContext, mainWindow: self.mainWindow, context: context as! AccountContextImpl, accountManager: sharedApplicationContext.sharedContext.accountManager, showCallsTab: callListSettings.showTab, reinitializedNotificationSettings: {
                         let _ = (self.context.get()
                         |> take(1)
                         |> deliverOnMainQueue).start(next: { context in
@@ -1313,6 +1289,8 @@ private func diagUncaughtHandler(_ exception: NSException) {
                             }
                         })
                     })
+                    self.diagStep("ctx: init done account=\(context.account.id.rawValue)")
+                    return result
                 }
             }
         })
@@ -1448,6 +1426,7 @@ private func diagUncaughtHandler(_ exception: NSException) {
             
             Logger.shared.log("App \(self.episodeId)", "received auth context \(String(describing: context)) account \(String(describing: context?.account.id)) network \(String(describing: network))")
             self.diagStep("auth context delivered: \(context != nil)")
+            self.diagStep("auth: prevValue=\(self.authContextValue != nil) completed=\(self.authContextValue?.authorizationCompleted ?? false)")
             
             if let authContextValue = self.authContextValue {
                 authContextValue.account.shouldBeServiceTaskMaster.set(.single(.never))
