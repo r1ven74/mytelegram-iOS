@@ -321,7 +321,7 @@ public func accountWithId(accountManager: AccountManager<TelegramAccountManagerT
                         
                         return (state, localizationSettings, proxySettings, transaction.getPreferencesEntry(key: PreferencesKeys.networkSettings)?.get(NetworkSettings.self), appConfig)
                     }
-                    let readStateAndSettings: Signal<(PostboxCoding?, LocalizationSettings?, ProxySettings?, NetworkSettings?, AppConfiguration), NoError> = readStateOnce
+                    let readStateAndSettings = readStateOnce
                         |> mapToSignal { result -> Signal<(PostboxCoding?, LocalizationSettings?, ProxySettings?, NetworkSettings?, AppConfiguration), NoError> in
                             if result.0 != nil || backupData != nil {
                                 return .single(result)
@@ -351,6 +351,7 @@ public func accountWithId(accountManager: AccountManager<TelegramAccountManagerT
                                         }
                                 }
                         }
+                    return readStateAndSettings
                     |> mapToSignal { value -> Signal<AccountResult, NoError> in
                         let (accountState, localizationSettings, proxySettings, networkSettings, appConfig) = value
                         let keychain = makeExclusiveKeychain(id: id, postbox: postbox)
