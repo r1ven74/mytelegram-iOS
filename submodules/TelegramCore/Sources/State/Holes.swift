@@ -1182,14 +1182,17 @@ func fetchChatListHole(postbox: Postbox, network: Network, accountPeerId: PeerId
         case .group:
             location = .group(groupId)
     }
+    daygramDiagLog("chatList.hole start groupId=\(groupId.rawValue) holeIndex=\(hole.index.id.id)@\(hole.index.timestamp)")
     return fetchChatList(accountPeerId: accountPeerId, postbox: postbox, network: network, location: location, upperBound: hole.index, hash: 0, limit: 100)
     |> mapToSignal { fetchedChats -> Signal<Never, NoError> in
         guard let fetchedChats = fetchedChats else {
+            daygramDiagLog("chatList.hole fetched=nil -> remove hole at \(hole.index.id.id)@\(hole.index.timestamp)")
             return postbox.transaction { transaction -> Void in
                 transaction.replaceChatListHole(groupId: groupId, index: hole.index, hole: nil)
             }
             |> ignoreValues
         }
+        daygramDiagLog("chatList.hole fetched lowerNonPinned=\(fetchedChats.lowerNonPinnedIndex.map { "\($0.id.id)@\($0.timestamp)" } ?? "nil") chatPeerIds=\(fetchedChats.chatPeerIds.count) storeMessages=\(fetchedChats.storeMessages.count) -> replace hole at \(hole.index.id.id)@\(hole.index.timestamp)")
         return withResolvedAssociatedMessages(postbox: postbox, source: .network(network), accountPeerId: accountPeerId, parsedPeers: fetchedChats.peers, storeMessages: fetchedChats.storeMessages, resolveThreads: false, { transaction, additionalPeers, additionalMessages -> Void in
             updatePeers(transaction: transaction, accountPeerId: accountPeerId, peers: fetchedChats.peers.union(with: additionalPeers))
             

@@ -71,6 +71,10 @@ func managedChatListHoles(network: Network, postbox: Postbox, accountPeerId: Pee
                 return state.update(entries: entries)
             }
             
+            if !removed.isEmpty || !added.isEmpty {
+                daygramDiagLog("chatList.holes update entries=\(entries.map { "\($0.groupId.rawValue):\($0.hole.index.id.id)@\($0.hole.index.timestamp)" }.joined(separator: ",")) removed=\(removed.count) added=\(added.count)")
+            }
+            
             for disposable in removed {
                 disposable.dispose()
             }

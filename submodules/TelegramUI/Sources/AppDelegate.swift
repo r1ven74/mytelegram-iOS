@@ -214,8 +214,6 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
     )
 }
 
-private let diagLogTag = 987654
-
 private func diagLog(_ message: String) {
     daygramDiagLog(message)
 }
@@ -239,11 +237,6 @@ private func diagUncaughtHandler(_ exception: NSException) {
 
     private func diagStep(_ text: String) {
         diagLog(text)
-        DispatchQueue.main.async { [weak self] in
-            if let label = self?.window?.rootViewController?.view.viewWithTag(diagLogTag) as? UILabel {
-                label.text = "DIAG: \(text)"
-            }
-        }
     }
 
     private let isInForegroundPromise = ValuePromise<Bool>(false, ignoreRepeated: true)
@@ -448,15 +441,6 @@ private func diagUncaughtHandler(_ exception: NSException) {
         self.window = window
         self.nativeWindow = window
         
-        hostView.containerView.backgroundColor = UIColor(red: 1.0, green: 0.0, blue: 0.55, alpha: 1.0)
-        let diagLabel = UILabel(frame: CGRect(x: 16.0, y: 64.0, width: UIScreen.main.bounds.width - 32.0, height: 160.0))
-        diagLabel.autoresizingMask = [.flexibleWidth]
-        diagLabel.tag = diagLogTag
-        diagLabel.textColor = .white
-        diagLabel.font = UIFont.monospacedSystemFont(ofSize: 18.0, weight: .bold)
-        diagLabel.numberOfLines = 0
-        diagLabel.text = "DIAG: window created"
-        hostView.containerView.addSubview(diagLabel)
         diagLog("window created, frame=\(window.frame)")
         window.makeKeyAndVisible()
         

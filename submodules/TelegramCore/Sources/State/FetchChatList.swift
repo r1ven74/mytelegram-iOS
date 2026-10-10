@@ -277,11 +277,24 @@ func fetchChatList(accountPeerId: PeerId, postbox: Postbox, network: Network, lo
             
             return combineLatest(requestChats, additionalPinnedChats)
             |> mapToSignal { remoteChats, pinnedChats -> Signal<FetchedChatList?, NoError> in
+                let remoteCase: String
+                switch remoteChats {
+                case .dialogs: remoteCase = "dialogs"
+                case .dialogsSlice: remoteCase = "dialogsSlice"
+                case .dialogsNotModified: remoteCase = "notModified"
+                }
+                var offsetDesc = "empty"
+                if timestamp != 0 || id != 0 {
+                    offsetDesc = "date=\(timestamp) id=\(id) peer=\(peer)"
+                }
+                daygramDiagLog("chatList.fetch resp=\(remoteCase) offset=\(offsetDesc) folder=\(requestFolderId)")
                 if case .dialogsNotModified = remoteChats {
+                    daygramDiagLog("chatList.fetch notModified -> hole removed")
                     return .single(nil)
                 }
                 let extractedRemoteDialogs = extractDialogsData(dialogs: remoteChats)
                 let parsedRemoteChats = parseDialogs(accountPeerId: accountPeerId, apiDialogs: extractedRemoteDialogs.apiDialogs, apiMessages: extractedRemoteDialogs.apiMessages, apiChats: extractedRemoteDialogs.apiChats, apiUsers: extractedRemoteDialogs.apiUsers, apiIsAtLowestBoundary: extractedRemoteDialogs.apiIsAtLowestBoundary)
+                daygramDiagLog("chatList.fetch parsed apiDialogs=\(extractedRemoteDialogs.apiDialogs.count) apiMessages=\(extractedRemoteDialogs.apiMessages.count) apiChats=\(extractedRemoteDialogs.apiChats.count) apiUsers=\(extractedRemoteDialogs.apiUsers.count) atLowest=\(extractedRemoteDialogs.apiIsAtLowestBoundary) itemIds=\(parsedRemoteChats.itemIds.count) storeMessages=\(parsedRemoteChats.storeMessages.count) lowerNonPinned=\(parsedRemoteChats.lowerNonPinnedIndex.map { "\($0.id.id)@\($0.timestamp)" } ?? "nil")")
                 var parsedPinnedChats: ParsedDialogs?
                 if let pinnedChats = pinnedChats {
                     let extractedPinnedChats = extractDialogsData(peerDialogs: pinnedChats)
