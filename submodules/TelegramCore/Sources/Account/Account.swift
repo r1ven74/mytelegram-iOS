@@ -351,7 +351,8 @@ public func accountWithId(accountManager: AccountManager<TelegramAccountManagerT
                                         }
                                 }
                         }
-                    |> mapToSignal { (accountState, localizationSettings, proxySettings, networkSettings, appConfig) -> Signal<AccountResult, NoError> in
+                    |> mapToSignal { value -> Signal<AccountResult, NoError> in
+                        let (accountState, localizationSettings, proxySettings, networkSettings, appConfig) = value
                         let keychain = makeExclusiveKeychain(id: id, postbox: postbox)
                         daygramDiagLog("account \(id): keychain ok")
                         
