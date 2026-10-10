@@ -247,6 +247,7 @@ func fetchChatList(accountPeerId: PeerId, postbox: Postbox, network: Network, lo
         
         return offset
         |> mapToSignal { (timestamp, id, peer) -> Signal<FetchedChatList?, NoError> in
+            daygramDiagLog("chatList.fetch offset date=\(timestamp) id=\(id) peer=\(peer)")
             let additionalPinnedChats: Signal<Api.messages.PeerDialogs?, NoError>
             if case .inputPeerEmpty = peer, timestamp == 0 {
                 let folderId: Int32
@@ -257,6 +258,10 @@ func fetchChatList(accountPeerId: PeerId, postbox: Postbox, network: Network, lo
                         folderId = groupId.rawValue
                 }
                 additionalPinnedChats = network.request(Api.functions.messages.getPinnedDialogs(folderId: folderId))
+                |> mapError { error -> MTRpcError in
+                    daygramDiagLog("chatList.fetch pinnedError \(error.errorCode) \(error.errorDescription ?? "?")")
+                    return error
+                }
                 |> retryRequestIfNotFrozen
             } else {
                 additionalPinnedChats = .single(nil)
@@ -273,6 +278,10 @@ func fetchChatList(accountPeerId: PeerId, postbox: Postbox, network: Network, lo
                     requestFolderId = groupId.rawValue
             }
             let requestChats = network.request(Api.functions.messages.getDialogs(flags: flags, folderId: requestFolderId, offsetDate: timestamp, offsetId: id, offsetPeer: peer, limit: limit, hash: hash))
+            |> mapError { error -> MTRpcError in
+                daygramDiagLog("chatList.fetch requestChats error \(error.errorCode) \(error.errorDescription ?? "?")")
+                return error
+            }
             |> retryRequest
             
             return combineLatest(requestChats, additionalPinnedChats)
