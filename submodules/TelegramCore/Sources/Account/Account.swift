@@ -288,7 +288,7 @@ public func accountWithId(accountManager: AccountManager<TelegramAccountManagerT
                 }
                 |> mapToSignal { localizationSettings, proxySettings -> Signal<AccountResult, NoError> in
                     daygramDiagLog("account \(id): shared settings read")
-                    return postbox.transaction { transaction -> (PostboxCoding?, LocalizationSettings?, ProxySettings?, NetworkSettings?, AppConfiguration) in
+                    let readStateOnce: Signal<(PostboxCoding?, LocalizationSettings?, ProxySettings?, NetworkSettings?, AppConfiguration), NoError> = postbox.transaction { transaction -> (PostboxCoding?, LocalizationSettings?, ProxySettings?, NetworkSettings?, AppConfiguration) in
                         var state = transaction.getState()
                         if state == nil, let backupData = backupData {
                             let backupState = AuthorizedAccountState(isTestingEnvironment: beginWithTestingEnvironment, masterDatacenterId: backupData.masterDatacenterId, peerId: PeerId(backupData.peerId), state: nil, invalidatedChannels: [])
@@ -321,6 +321,36 @@ public func accountWithId(accountManager: AccountManager<TelegramAccountManagerT
                         
                         return (state, localizationSettings, proxySettings, transaction.getPreferencesEntry(key: PreferencesKeys.networkSettings)?.get(NetworkSettings.self), appConfig)
                     }
+                    let readStateAndSettings: Signal<(PostboxCoding?, LocalizationSettings?, ProxySettings?, NetworkSettings?, AppConfiguration), NoError> = readStateOnce
+                        |> mapToSignal { result -> Signal<(PostboxCoding?, LocalizationSettings?, ProxySettings?, NetworkSettings?, AppConfiguration), NoError> in
+                            if result.0 != nil || backupData != nil {
+                                return .single(result)
+                            }
+                            daygramDiagLog("account \(id): state nil after signIn, retrying in 0.15s")
+                            return .single(Void())
+                                |> delay(0.15, queue: Queue.concurrentDefaultQueue())
+                                |> take(1)
+                                |> mapToSignal { _ in readStateOnce }
+                                |> mapToSignal { result2 -> Signal<(PostboxCoding?, LocalizationSettings?, ProxySettings?, NetworkSettings?, AppConfiguration), NoError> in
+                                    if result2.0 != nil || backupData != nil {
+                                        daygramDiagLog("account \(id): state recovered on retry")
+                                        return .single(result2)
+                                    }
+                                    daygramDiagLog("account \(id): state still nil, retrying again in 0.35s")
+                                    return .single(Void())
+                                        |> delay(0.35, queue: Queue.concurrentDefaultQueue())
+                                        |> take(1)
+                                        |> mapToSignal { _ in readStateOnce }
+                                        |> map { result3 -> (PostboxCoding?, LocalizationSettings?, ProxySettings?, NetworkSettings?, AppConfiguration) in
+                                            if result3.0 != nil {
+                                                daygramDiagLog("account \(id): state recovered on second retry")
+                                            } else {
+                                                daygramDiagLog("account \(id): state nil after all retries, giving up")
+                                            }
+                                            return result3
+                                        }
+                                }
+                        }
                     |> mapToSignal { (accountState, localizationSettings, proxySettings, networkSettings, appConfig) -> Signal<AccountResult, NoError> in
                         let keychain = makeExclusiveKeychain(id: id, postbox: postbox)
                         daygramDiagLog("account \(id): keychain ok")
