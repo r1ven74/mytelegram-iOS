@@ -57,7 +57,11 @@ func _internal_availableLocalizations(postbox: Postbox, network: Network, allowC
     let remote = network.request(Api.functions.langpack.getLanguages(langPack: ""))
     |> retryRequest
     |> mapToSignal { languages -> Signal<[LocalizationInfo], NoError> in
+        daygramDiagLog("lang: getLanguages returned \(languages.count) languages")
         let infos: [LocalizationInfo] = languages.map(LocalizationInfo.init(apiLanguage:))
+        for info in infos {
+            daygramDiagLog("lang: lang code=\(info.languageCode) title=\(info.title) native=\(info.localizedTitle) official=\(info.isOfficial) strings=\(info.totalStringCount)")
+        }
         return postbox.transaction { transaction -> [LocalizationInfo] in
             if let entry = CodableEntry(CachedLocalizationInfos(list: infos)) {
                 transaction.putItemCacheEntry(id: ItemCacheEntryId(collectionId: Namespaces.CachedItemCollection.cachedAvailableLocalizations, key: ValueBoxKey(length: 0)), entry: entry)
@@ -74,8 +78,10 @@ public enum DownloadLocalizationError {
 }
 
 func _internal_downloadLocalization(network: Network, languageCode: String) -> Signal<Localization, DownloadLocalizationError> {
+    daygramDiagLog("lang: getLangPack begin code=\(languageCode)")
     return network.request(Api.functions.langpack.getLangPack(langPack: "", langCode: languageCode))
-    |> mapError { _ -> DownloadLocalizationError in
+    |> mapError { error -> DownloadLocalizationError in
+        daygramDiagLog("lang: getLangPack FAILED code=\(languageCode) error=\(error)")
         return .generic
     }
     |> map { result -> Localization in
@@ -85,6 +91,7 @@ func _internal_downloadLocalization(network: Network, languageCode: String) -> S
             case let .langPackDifference(langPackDifferenceData):
                 let (versionValue, strings) = (langPackDifferenceData.version, langPackDifferenceData.strings)
                 version = versionValue
+                daygramDiagLog("lang: getLangPack ok code=\(languageCode) version=\(versionValue) strings=\(strings.count)")
                 for string in strings {
                     switch string {
                         case let .langPackString(langPackStringData):
@@ -109,8 +116,14 @@ public enum DownloadAndApplyLocalizationError {
 }
 
 func _internal_downloadAndApplyLocalization(accountManager: AccountManager<TelegramAccountManagerTypes>, postbox: Postbox, network: Network, languageCode: String) -> Signal<Void, DownloadAndApplyLocalizationError> {
+    daygramDiagLog("lang: downloadAndApply begin code=\(languageCode)")
     return _internal_requestLocalizationPreview(network: network, identifier: languageCode)
+    |> map { preview -> LocalizationInfo in
+        daygramDiagLog("lang: preview ok code=\(preview.languageCode) base=\(preview.baseLanguageCode ?? "nil") title=\(preview.localizedTitle)")
+        return preview
+    }
     |> mapError { _ -> DownloadAndApplyLocalizationError in
+        daygramDiagLog("lang: preview FAILED code=\(languageCode)")
         return .generic
     }
     |> mapToSignal { preview -> Signal<Void, DownloadAndApplyLocalizationError> in
@@ -120,11 +133,17 @@ func _internal_downloadAndApplyLocalization(accountManager: AccountManager<Teleg
             primaryAndSecondaryLocalizations.append(_internal_downloadLocalization(network: network, languageCode: secondaryCode))
         }
         return combineLatest(primaryAndSecondaryLocalizations)
+        |> map { components -> [Localization] in
+            daygramDiagLog("lang: download ok components=\(components.count) version=\(components.first?.version ?? 0) entries=\(components.first?.entries.count ?? 0)")
+            return components
+        }
         |> mapError { _ -> DownloadAndApplyLocalizationError in
+            daygramDiagLog("lang: download FAILED")
             return .generic
         }
         |> mapToSignal { components -> Signal<Void, DownloadAndApplyLocalizationError> in
             guard let primaryLocalization = components.first else {
+                daygramDiagLog("lang: no primary localization, failing")
                 return .fail(.generic)
             }
             var secondaryComponent: LocalizationComponent?
@@ -132,9 +151,11 @@ func _internal_downloadAndApplyLocalization(accountManager: AccountManager<Teleg
                 secondaryComponent = LocalizationComponent(languageCode: secondaryCode, localizedName: "", localization: components[1], customPluralizationCode: nil)
             }
             return accountManager.transaction { transaction -> Signal<Void, DownloadAndApplyLocalizationError> in
+                daygramDiagLog("lang: applying settings code=\(preview.languageCode) title=\(preview.localizedTitle) entries=\(primaryLocalization.entries.count)")
                 transaction.updateSharedData(SharedDataKeys.localizationSettings, { _ in
                     return PreferencesEntry(LocalizationSettings(primaryComponent: LocalizationComponent(languageCode: preview.languageCode, localizedName: preview.localizedTitle, localization: primaryLocalization, customPluralizationCode: preview.customPluralizationCode), secondaryComponent: secondaryComponent))
                 })
+                daygramDiagLog("lang: sharedData updated")
                 
                 return postbox.transaction { transaction -> Signal<Void, DownloadAndApplyLocalizationError> in
                     updateLocalizationListStateInteractively(transaction: transaction, { state in
@@ -158,6 +179,7 @@ func _internal_downloadAndApplyLocalization(accountManager: AccountManager<Teleg
                         return .complete()
                     }
                     |> mapToSignal { _ -> Signal<Void, NoError> in
+                        daygramDiagLog("lang: apply COMPLETE code=\(preview.languageCode)")
                         return .complete()
                     }
                     |> castError(DownloadAndApplyLocalizationError.self)

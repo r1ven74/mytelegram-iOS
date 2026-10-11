@@ -53,6 +53,7 @@ func _internal_synchronizedLocalizationListState(postbox: Postbox, network: Netw
     return network.request(Api.functions.langpack.getLanguages(langPack: ""))
     |> retryRequest
     |> mapToSignal { languages -> Signal<Never, NoError> in
+        daygramDiagLog("lang: syncListState got \(languages.count) languages")
         let infos: [LocalizationInfo] = languages.map(LocalizationInfo.init(apiLanguage:))
         return postbox.transaction { transaction -> Void in
             updateLocalizationListStateInteractively(transaction: transaction, { current in

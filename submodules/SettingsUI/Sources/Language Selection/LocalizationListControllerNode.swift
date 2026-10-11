@@ -760,16 +760,22 @@ final class LocalizationListControllerNode: ViewControllerTracingNode {
     }
     
     private func selectLocalization(_ info: LocalizationInfo) -> Void {
+        daygramDiagLog("lang: selectLocalization tapped code=\(info.languageCode) title=\(info.title) official=\(info.isOfficial)")
         let applyImpl: () -> Void = { [weak self] in
             guard let strongSelf = self else {
                 return
             }
+            daygramDiagLog("lang: applyImpl called code=\(info.languageCode)")
             strongSelf.applyingCode.set(.single(info.languageCode))
             strongSelf.applyDisposable.set((strongSelf.context.engine.localization.downloadAndApplyLocalization(accountManager: strongSelf.context.sharedContext.accountManager, languageCode: info.languageCode)
                 |> deliverOnMainQueue).start(completed: { [weak self] in
+                    daygramDiagLog("lang: downloadAndApply completed code=\(info.languageCode)")
                     self?.applyingCode.set(.single(nil))
                 
                     self?.context.engine.messages.refreshAttachMenuBots()
+                }, error: { [weak self] _ in
+                    daygramDiagLog("lang: downloadAndApply FAILED code=\(info.languageCode)")
+                    self?.applyingCode.set(.single(nil))
                 }))
         }
         if info.isOfficial {
