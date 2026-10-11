@@ -1624,7 +1624,11 @@ public extension Api {
 
     static func parse(_ reader: BufferReader, signature: Int32) -> Any? {
         if let parser = parsers[signature] {
-            return parser(reader)
+            let result = parser(reader)
+            if result == nil {
+                telegramApiLog("Type constructor \(String(UInt32(bitPattern: signature), radix: 16, uppercase: false)) parse returned nil (nested failure)")
+            }
+            return result
         } else {
             telegramApiLog("Type constructor \(String(UInt32(bitPattern: signature), radix: 16, uppercase: false)) not found")
             return nil

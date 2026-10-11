@@ -1098,6 +1098,10 @@ public final class Network: NSObject, MTRequestMessageServiceDelegate {
                 if errorContext.floodWaitSeconds > 0 && !automaticFloodWait {
                     return false
                 }
+                if errorContext.internalServerErrorCount > 2 {
+                    daygramDiagLog("network: giving up on 500 after \(errorContext.internalServerErrorCount) retries")
+                    return false
+                }
                 return true
             }
             
@@ -1170,11 +1174,16 @@ public final class Network: NSObject, MTRequestMessageServiceDelegate {
                 if errorContext.floodWaitSeconds > 0 && !automaticFloodWait {
                     return false
                 }
+                if errorContext.internalServerErrorCount > 2 {
+                    daygramDiagLog("network: giving up on 500 after \(errorContext.internalServerErrorCount) retries")
+                    return false
+                }
                 return true
             }
             
             request.completed = { (boxedResponse, timestamp, error) -> () in
                 if let error = error {
+                    daygramDiagLog("network: request \(data.0.name) failed code=\(error.errorCode) desc=\(error.errorDescription ?? "?")")
                     subscriber.putError(error)
                 } else {
                     if let result = (boxedResponse as! BoxedMessage).body as? T {
@@ -1182,6 +1191,7 @@ public final class Network: NSObject, MTRequestMessageServiceDelegate {
                         subscriber.putCompletion()
                     }
                     else {
+                        daygramDiagLog("network: request \(data.0.name) TL_VERIFICATION_ERROR expected=\(T.self)")
                         subscriber.putError(MTRpcError(errorCode: 500, errorDescription: "TL_VERIFICATION_ERROR"))
                     }
                 }
