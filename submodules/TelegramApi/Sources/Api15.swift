@@ -1197,7 +1197,7 @@ public extension Api {
             switch self {
             case .message(let _data):
                 if boxed {
-                    buffer.appendInt32(988112002)
+                    buffer.appendInt32(-1779470549)
                 }
                 serializeInt32(_data.flags, buffer: buffer, boxed: false)
                 serializeInt32(_data.flags2, buffer: buffer, boxed: false)
